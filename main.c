@@ -93,6 +93,7 @@ void OBC(void) {
 	char command_name[64];
 
 	printf("On Board Computer (OBC) STARTING...\n");
+	printf("Type help to see the available commands.\n");
 
 	for (;;) {
 		printf("Type a command for OBC to execute : ");
@@ -101,13 +102,14 @@ void OBC(void) {
 
 		if (strcmp(command_name, "EXIT\n") == 0) {
 			setBlueTextColor();
-			printf("\nOBC TURING OFF...\n");
+			printf("OBC TURING OFF...\n");
 			resetTextColor();
 			exit(0);
 		}
 		if (strcmp(command_name, "help\n") == 0) {
 			setBlueTextColor();
-			printf("Enter Open_Session to open a camera session.");
+			printf("Enter EXIT to close the OBC.");
+			printf("\nEnter Open_Session to open a camera session.");
 			printf("\nEnter Configure to configure the currently open session of the camera.\n");
 			resetTextColor();
 		}
