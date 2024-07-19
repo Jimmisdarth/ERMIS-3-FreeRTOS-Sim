@@ -10,13 +10,17 @@
 #include "queue.h"
 
 // DEFINITIONS
-#define MAXPARAMETERS 6
-#define SUBSYSTEMSTATESRETURNPARAMETERS 5
+#define MAX_PARAMETERS 6
+#define SUBSYSTEM_STATES_RETURN_PARAMETERS 5
+#define SESSION_INFORAMTION_RETURN_PARAMETERS 2
+#define IMAGE_CAPTURE_TIME pdMS_TO_TICKS( 1000 )
+#define MONITOR_IMAGE_CAPTURE_PERIOD pdMS_TO_TICKS ( 500 )
+#define MAX_WAIT_TIME_FOR_IMAGE_CAPTURE_COMPLETION pdMS_TO_TICKS( 2000 )
 
 // Struct for I2C transfers of HyperSpectral Camera
 typedef struct I2C_Payload {
 	int Command_ID;
-	int Parameter[MAXPARAMETERS];
+	int Parameter[MAX_PARAMETERS];
 } I2C_Payload;
 
 // TASK FUNCTIONS
@@ -38,15 +42,30 @@ void resetTextColor()     { printf("\033[0m"); }
 // OBC COMMANDS
 int  cameraOpenSession();
 void cameraConfig(int mode);
+int  cameraActivateSession(int mode);
+void cameraEnableSensor();
+void cameraDisableSensor();
+void cameraCaptureImage();
+void cameraCloseSession();
 
 // HYPERSPECTRAL CAMERA COMMANDS
-void OPEN_SESSION_COMMAND();
-int  CURRENT_SESSION_ID_COMMAND();
+void OPEN_SESSION();
 void CONFIGURE(int mode);
+void ACTIVATE_SESSION(int mode);
+void ENABLE_SENSOR();
+void CAPTURE_IMAGE();
+void DISABLE_SENSOR();
+void CLOSE_SESSION();
 
 // HYPERSPECTRAL CAMERA REQUESTS
-void SUBSYSTEM_STATES_COMMAND(int states[]);
+void SUBSYSTEM_STATES(int states[]);
+void SESSION_INFORMATION(int states[]);
+int  CURRENT_SESSION_ID();
+int  CURRENT_SESSION_SIZE();
+
+// HELPER FOR REQUEST
 void printSubSystemStates(const int states[]);
+void printSessionInforamtion(const int states[]);
 
 
 // TASK HANDLERS
@@ -76,7 +95,7 @@ int main(void) {
 
 void print_I2C_payload(const I2C_Payload p) {
 	printf("Command ID : 0x%X\n", p.Command_ID);
-	for (int i = 0; i < MAXPARAMETERS; ++i)
+	for (int i = 0; i < MAX_PARAMETERS; ++i)
 		printf("Parameter %d = %d\n", i, p.Parameter[i]);
 }
 
@@ -89,6 +108,7 @@ void printCommandID(const char* command_name, int command_id) {
 // TASKS
 void OBC(void) {
 	int hyperspectral_camera_session_id = -100;
+	int session_size = -100;
 
 	char command_name[64];
 
@@ -110,7 +130,13 @@ void OBC(void) {
 			setBlueTextColor();
 			printf("Enter EXIT to close the OBC.");
 			printf("\nEnter Open_Session to open a camera session.");
-			printf("\nEnter Configure to configure the currently open session of the camera.\n");
+			printf("\nEnter Configure to configure the currently open session of the camera.");
+			printf("\nEnter Activate_Session to activate the currently open session of the camera.");
+			printf("\nEnter Enable_Sensor to enable the sensor of the camera.");
+			printf("\nEnter Disable_Sensor to disable the sensor of the camera.");
+			printf("\nEnter Capture_Image to start the image captuting.");
+			printf("\nEnter Close_Session to close the session of the camera.");
+			printf("\n");
 			resetTextColor();
 		}
 		if (strcmp(command_name, "Open_Session\n") == 0) {
@@ -122,6 +148,21 @@ void OBC(void) {
 		if (strcmp(command_name, "Configure\n") == 0) {
 			cameraConfig(1);	// Configure camera for line scan
 		}
+		if (strcmp(command_name, "Activate_Session\n") == 0) {
+			session_size = cameraActivateSession(1);	// Activate the currently open session with automatic mode
+		}
+		if (strcmp(command_name, "Enable_Sensor\n") == 0) {
+			cameraEnableSensor();
+		}
+		if (strcmp(command_name, "Disable_Sensor\n") == 0) {
+			cameraDisableSensor();
+		}
+		if (strcmp(command_name, "Capture_Image\n") == 0) {
+			cameraCaptureImage();
+		}
+		if (strcmp(command_name, "Close_Session\n") == 0) {
+			cameraCloseSession();
+		}
 	}
 }
 
@@ -130,11 +171,11 @@ int cameraOpenSession() {
 
 	int states[5];
 
-	OPEN_SESSION_COMMAND();
+	OPEN_SESSION();
 
-	session_id = CURRENT_SESSION_ID_COMMAND();
+	session_id = CURRENT_SESSION_ID();
 
-	SUBSYSTEM_STATES_COMMAND(states);
+	SUBSYSTEM_STATES(states);
 
 	if (states[0] == 1) {
 		setBlueTextColor();
@@ -155,7 +196,7 @@ void cameraConfig(int mode) {
 
 	CONFIGURE(mode);
 
-	SUBSYSTEM_STATES_COMMAND(states);
+	SUBSYSTEM_STATES(states);
 
 	if (states[1] == 1) {
 		setBlueTextColor();
@@ -169,6 +210,121 @@ void cameraConfig(int mode) {
 	}
 }
 
+int cameraActivateSession(int mode) {
+	int states[5];
+	int session_size = -100;
+
+	ACTIVATE_SESSION(mode);
+
+	SUBSYSTEM_STATES(states);
+
+	session_size = CURRENT_SESSION_SIZE();
+
+	if (states[0] == 2) {
+		setBlueTextColor();
+		printf("Camera session activated, current session size : %d\n", session_size);
+		resetTextColor();
+	}
+	else {
+		setRedTextColor();
+		printf("Couldn't activate camera's session\n");
+		resetTextColor();
+	}
+
+	return session_size;
+}
+
+void cameraEnableSensor() {
+	int states[5];
+
+	ENABLE_SENSOR();
+
+	SUBSYSTEM_STATES(states);
+
+	if (states[2] == 1) {
+		setBlueTextColor();
+		printf("Camera's sensor enabled successfully\n");
+		resetTextColor();
+	}
+	else {
+		setRedTextColor();
+		printf("Couldn't enable the sensor of the camera\n");
+		resetTextColor();
+	}
+}
+
+void cameraDisableSensor() {
+	int states[5];
+
+	DISABLE_SENSOR();
+
+	SUBSYSTEM_STATES(states);
+
+	if (states[2] == 0) {
+		setBlueTextColor();
+		printf("Camera's sensor disabled successfully\n");
+		resetTextColor();
+	}
+	else {
+		setRedTextColor();
+		printf("Couldn't disable the sensor of the camera\n");
+		resetTextColor();
+	}
+}
+
+void cameraCaptureImage() {
+	int states[5];
+
+	TickType_t starting_tick_time;
+	TickType_t current_tick_time;
+	TickType_t time_passed;
+
+	CAPTURE_IMAGE();
+	starting_tick_time = xTaskGetTickCount();
+
+	SUBSYSTEM_STATES(states);
+
+	while (states[3] == 2) {
+		current_tick_time = xTaskGetTickCount();
+		time_passed = current_tick_time - starting_tick_time;
+
+		if (time_passed % MONITOR_IMAGE_CAPTURE_PERIOD == 0)
+			SUBSYSTEM_STATES(states);
+		if (time_passed == MAX_WAIT_TIME_FOR_IMAGE_CAPTURE_COMPLETION)
+			break;
+	}
+
+	if (states[3] == 0) {
+		setBlueTextColor();
+		printf("Camera captured image successfully\n");
+		resetTextColor();
+	}
+	else {
+		setRedTextColor();
+		printf("Couldn't capture the image\n");
+		resetTextColor();
+	}
+}
+
+void cameraCloseSession() {
+	int states[3];
+
+	CLOSE_SESSION();
+
+	SESSION_INFORMATION(states);
+
+	if (states[0] == 0) {
+		setBlueTextColor();
+		printf("Camera's session closed successfully\n");
+		resetTextColor();
+	}
+	else {
+		setRedTextColor();
+		printf("Couldn't close the session of the camera\n");
+		resetTextColor();
+	}
+}
+
 /*
 * 
 * HYPERSPECTRAL CAMERA TASK
@@ -177,22 +333,39 @@ void cameraConfig(int mode) {
 
 void HyperSpectralCamera(void) {
 
+	// IDENTIFIERS AND MODES OF THE CAMERA
 	int session_id = -1;
 
-	int scan_mode = -1;	// 1 -> line scan, 3 -> line scan test pattern, 5 -> line scan high accuracy mode 
+	int scan_mode = -1;	// 1 -> line scan, 3 -> line scan test pattern, 5 -> line scan high accuracy mode. 
+
+	int storage_mode = -1; // 0 -> Manual mode (should never be used), 1 -> Automatic mode.
+	int session_size = 0; // In MegaBytes.
 
 	// SUBSYSTEM STATES RESPONSE 
-	int Session_State = 0; // 2 Bits
-	int Config_State = 0; // 1 Bit
-	int Sensor_State = 0; // 1 Bit
-	int Capture_State = 0; // 2 Bits
+	int Session_State  = 0; // 2 Bits
+	int Config_State   = 0; // 1 Bit
+	int Sensor_State   = 0; // 1 Bit
+	int Capture_State  = 0; // 2 Bits
 	int Read_Out_State = 0; // 1 Bit
 
+	// SESSION INFORAMTION RESPONSE 
+	int Session_Close_Error = 0; // 1 Bits
+	int Storage_Error = 0;       // 1 Bit
+
+	// COMMAND AND REQUESTS INFORMATION
 	I2C_Payload rx_payload;
 	I2C_Payload tx_payload;
 
 	int command_id;
 	int received_command;
+
+	// REPRESENTATION OF THE STORED IMAGE DATA
+	int stored_image_data = -100;
+
+	// TIME INFORMATION FOR IMAGE CAPTURE SIMULATION
+	TickType_t image_capture_start_tick_time;
+	TickType_t current_tick_time; 
+	TickType_t time_passed;
 
 	for (;;) {
 		received_command = xQueueReceive(I2C_CAMERA, &rx_payload, portMAX_DELAY);
@@ -207,10 +380,40 @@ void HyperSpectralCamera(void) {
 				Session_State = 1;
 				printf("HyperSpectral Camera Opening Session %d ...\n", session_id);
 			}
+			if (command_id == 1 && Session_State == 1 && Config_State == 1) {		// 0x01 ACTIVATE SESSION
+				storage_mode = rx_payload.Parameter[0];
+				session_size = 1024;
+				Session_State = 2;
+				printf("HyperSpectral Camera activating current open Session with ID: %d, storage mode : %d ", session_id, storage_mode);
+				printf("and reserving %d MB in Flash Memory\n", session_size);
+			}
+			if (command_id == 2) {		// 0x02 CLOSE SESSION
+				Session_State  = 0;
+				Config_State   = 0;
+				Sensor_State   = 0;
+				Capture_State  = 0;
+				Read_Out_State = 0;
+
+				Session_Close_Error = 0;
+				printf("HyperSpectral Camera closing the session with ID: %d\n", session_id);
+			}
+			if (command_id == 32) {		// 0x20 ENALBE SENSOR
+				Sensor_State = 1;
+				printf("HyperSpectral Camera Enabling Sensor\n");
+			}
+			if (command_id == 33) {		// 0x21 DISABLE SENSOR
+				Sensor_State = 0;
+				printf("HyperSpectral Camera Disabling the Sensor\n");
+			}
 			if (command_id == 38 && Session_State == 1) {		// 0x26 CONFIGURE
 				scan_mode = rx_payload.Parameter[0];
 				Config_State = 1;
 				printf("HyperSpectral Camera using scan mode : %d\n", scan_mode);
+			}
+			if (command_id == 39 && Session_State == 2 && Config_State == 1 && Sensor_State == 1) {		// 0x27 CAPTURE IMAGE
+				Capture_State = 2;
+				image_capture_start_tick_time = xTaskGetTickCount();
+				printf("HyperSpectral Camera starting image capture\n");
 			}
 			// REQUESTS
 			if (command_id == 129) {	// 0x81 SUBSYSTEMS STATES
@@ -224,15 +427,44 @@ void HyperSpectralCamera(void) {
 				printf("About to send SubSystem States response to OBC\n");
 				xQueueSend(I2C_OBC, &tx_payload, portMAX_DELAY);
 			}
+			if (command_id == 133) {	// 0x85 SESSION INFORMATION
+				tx_payload.Command_ID = 133;
+				tx_payload.Parameter[0] = Session_Close_Error;
+				tx_payload.Parameter[1] = Storage_Error;
+
+				printf("About to send Session Information response to OBC\n");
+				xQueueSend(I2C_OBC, &tx_payload, portMAX_DELAY);
+			}
 			if (command_id == 134) {	// 0x86 CURRENT SESSION ID
 				tx_payload.Command_ID = 134;
 				tx_payload.Parameter[0] = session_id;
 				printf("About to send Session_ID : %d to OBC\n", session_id);
 				xQueueSend(I2C_OBC, &tx_payload, portMAX_DELAY);
 			}
-
-			resetTextColor();
+			if (command_id == 135) {	// 0x87 CURRENT SESSION SIZE
+				tx_payload.Command_ID = 135;
+				tx_payload.Parameter[0] = session_size;
+				printf("About to send  current Session Size : %d to OBC\n", session_size);
+				xQueueSend(I2C_OBC, &tx_payload, portMAX_DELAY);
+			}
 		}
+
+		// Simulate image capture. 
+		// The imager will count for a predifined number of ticks after which we consider that the image is captured.
+		if (Capture_State == 2) {
+			setGreenTextColor();
+
+			current_tick_time = xTaskGetTickCount();
+			time_passed = current_tick_time - image_capture_start_tick_time;
+
+			if (time_passed == IMAGE_CAPTURE_TIME) {
+				Capture_State = 0;
+				stored_image_data = 2930;
+				printf("Image Capture complete, stored image data : %d\n", stored_image_data);
+			}
+		}
+
+		resetTextColor();
 	}
 }
 
@@ -242,7 +474,7 @@ void HyperSpectralCamera(void) {
 * 
 */
 
-void OPEN_SESSION_COMMAND() {
+void OPEN_SESSION() {
 	I2C_Payload OPEN_SESSION;
 	OPEN_SESSION.Command_ID = 0;
 
@@ -251,23 +483,13 @@ void OPEN_SESSION_COMMAND() {
 	xQueueSend(I2C_CAMERA, &OPEN_SESSION, portMAX_DELAY);
 }
 
-int CURRENT_SESSION_ID_COMMAND() {
-	int session_id = -100;
+void CLOSE_SESSION() {
+	I2C_Payload payload;
+	payload.Command_ID = 2;
 
-	I2C_Payload CURRENT_SESSION_ID;
-	CURRENT_SESSION_ID.Command_ID = 134;
-	printCommandID("CURRENT SESSION ID", CURRENT_SESSION_ID.Command_ID);
+	printCommandID("CLOSE SESSION", payload.Command_ID);
 
-	if (!xQueueSend(I2C_CAMERA, &CURRENT_SESSION_ID, portMAX_DELAY)) {
-		printf("\nOBC FAILED TO SEND COMMAND x%x TO THE HYPERSPECTRAL CAMERA\n", CURRENT_SESSION_ID.Command_ID);
-		return NULL;
-	}
-	else {
-		if (xQueueReceive(I2C_OBC, &CURRENT_SESSION_ID, portMAX_DELAY))
-			session_id = CURRENT_SESSION_ID.Parameter[0];
-	}
-
-	return session_id;
+	xQueueSend(I2C_CAMERA, &payload, portMAX_DELAY);
 }
 
 void CONFIGURE(int mode){
@@ -280,7 +502,80 @@ void CONFIGURE(int mode){
 	xQueueSend(I2C_CAMERA, &payload, portMAX_DELAY);
 }
 
-void SUBSYSTEM_STATES_COMMAND(int states[]) {
+void ACTIVATE_SESSION(int mode) {
+	I2C_Payload payload;
+	payload.Command_ID = 1;
+	payload.Parameter[0] = mode;
+
+	printCommandID("ACTIVATE SESSION", payload.Command_ID);
+
+	xQueueSend(I2C_CAMERA, &payload, portMAX_DELAY);
+}
+
+void ENABLE_SENSOR() {
+	I2C_Payload payload;
+	payload.Command_ID = 32;
+
+	printCommandID("ENABLE SENSOR", payload.Command_ID);
+
+	xQueueSend(I2C_CAMERA, &payload, portMAX_DELAY);
+}
+
+void DISABLE_SENSOR() {
+	I2C_Payload payload;
+	payload.Command_ID = 33;
+
+	printCommandID("DISABLE SENSOR", payload.Command_ID);
+
+	xQueueSend(I2C_CAMERA, &payload, portMAX_DELAY);
+}
+
+void CAPTURE_IMAGE() {
+	I2C_Payload payload;
+	payload.Command_ID = 39;
+
+	printCommandID("CAPTURE IMAGE", payload.Command_ID);
+
+	xQueueSend(I2C_CAMERA, &payload, portMAX_DELAY);
+}
+
+int CURRENT_SESSION_ID() {
+	int session_id = -100;
+
+	I2C_Payload CURRENT_SESSION_ID;
+	CURRENT_SESSION_ID.Command_ID = 134;
+	printCommandID("CURRENT SESSION ID", CURRENT_SESSION_ID.Command_ID);
+
+	if (!xQueueSend(I2C_CAMERA, &CURRENT_SESSION_ID, portMAX_DELAY)) {
+		printf("\nOBC FAILED TO SEND COMMAND x%x TO THE HYPERSPECTRAL CAMERA\n", CURRENT_SESSION_ID.Command_ID);
+	}
+	else {
+		if (xQueueReceive(I2C_OBC, &CURRENT_SESSION_ID, portMAX_DELAY))
+			session_id = CURRENT_SESSION_ID.Parameter[0];
+	}
+
+	return session_id;
+}
+
+int CURRENT_SESSION_SIZE() {
+	int session_size = -100;
+
+	I2C_Payload payload;
+	payload.Command_ID = 135;
+	printCommandID("CURRENT SESSION SIZE", payload.Command_ID);
+
+	if (!xQueueSend(I2C_CAMERA, &payload, portMAX_DELAY)) {
+		printf("\nOBC FAILED TO SEND COMMAND x%x TO THE HYPERSPECTRAL CAMERA\n", payload.Command_ID);
+	}
+	else {
+		if (xQueueReceive(I2C_OBC, &payload, portMAX_DELAY))
+			session_size = payload.Parameter[0];
+	}
+
+	return session_size;
+}
+
+void SUBSYSTEM_STATES(int states[]) {
 
 	I2C_Payload payload;
 	payload.Command_ID = 129;	// 0x81
@@ -288,15 +583,34 @@ void SUBSYSTEM_STATES_COMMAND(int states[]) {
 
 	if (!xQueueSend(I2C_CAMERA, &payload, portMAX_DELAY)) {
 		printf("OBC FAILED TO SEND COMMAND 0x%x TO THE HYPERSPECTRAL CAMERA\n", payload.Command_ID);
-		return NULL;
 	}
 	else {
 		if (xQueueReceive(I2C_OBC, &payload, portMAX_DELAY)) {
 			// Read the states that the hyperspectral camera returned.
-			for(int i = 0; i < SUBSYSTEMSTATESRETURNPARAMETERS; ++i)
+			for(int i = 0; i < SUBSYSTEM_STATES_RETURN_PARAMETERS; ++i)
 				states[i] = payload.Parameter[i];
 
 			printSubSystemStates(states);
+		}
+	}
+}
+
+void SESSION_INFORMATION(int states[]) {
+
+	I2C_Payload payload;
+	payload.Command_ID = 133;	// 0x85
+	printCommandID("SESSION INFORMATION", payload.Command_ID);
+
+	if (!xQueueSend(I2C_CAMERA, &payload, portMAX_DELAY)) {
+		printf("OBC FAILED TO SEND COMMAND 0x%x TO THE HYPERSPECTRAL CAMERA\n", payload.Command_ID);
+	}
+	else {
+		if (xQueueReceive(I2C_OBC, &payload, portMAX_DELAY)) {
+			// Read the states that the hyperspectral camera returned.
+			for (int i = 0; i < SESSION_INFORAMTION_RETURN_PARAMETERS; ++i)
+				states[i] = payload.Parameter[i];
+
+			printSessionInforamtion(states);
 		}
 	}
 }
@@ -363,6 +677,33 @@ void printSubSystemStates(const int states[]) {
 	printf("Sensor   State : %s\n", sensor);
 	printf("Capture  State : %s\n", capture);
 	printf("Read Out State : %s\n", readout);
+	resetTextColor();
+}
+
+void printSessionInforamtion(const int states[]) {
+	char* session_close_error = "";
+	char* storage_error = "";
+
+	// SESSION CLOSE ERROR
+	if (states[0] == 0)
+		session_close_error = _strdup("No Error.");
+	else if (states[0] == 1)
+		session_close_error = _strdup("Error. Session was not explicitly closed, and session size may be incorrect.");
+	else
+		session_close_error = _strdup("Unkwown");
+
+	// STORAGE ERROR
+	if (states[1] == 0)
+		storage_error = _strdup("No Error.");
+	else if (states[1] == 1)
+		storage_error = _strdup(" Error. Flash ECC errors were detected during read out. A flash block may be bad.");
+	else
+		storage_error = _strdup("Unkwown");
+
+	setYellowTextColor();
+	printf("Received response from the camera, printing the states:\n");
+	printf("Closed Session State : %s\n", session_close_error);
+	printf("Storage State        : %s\n", storage_error);
 	resetTextColor();
 }
 
