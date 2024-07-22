@@ -34,6 +34,7 @@ typedef struct I2C_Payload {
 void OBC(void);
 void HyperSpectralCamera(void);
 void PDPU(void);
+void Laser(void);
 
 // STRUCT FUNCTIONS
 void print_I2C_payload(const I2C_Payload p);
@@ -45,6 +46,7 @@ static void setRedTextColor()     { printf("\x1b[31m"); }
 static void setBlueTextColor()    { printf("\x1b[34m"); }
 static void setYellowTextColor()  { printf("\x1b[33m"); }
 static void setMagentaTextColor() { printf("\x1b[36m"); }
+static void setPurpleTextColor()  { printf("\x1b[38;5;128m"); }
 static void resetTextColor()      { printf("\033[0m"); }
 
 
@@ -63,6 +65,9 @@ void pdpuRangeSetup(int start, int stop);
 void pdpuGetImageFromCamera(int session_id);
 void pdpuAbortReadOut();
 void pdpuDeleteSession(int session_id);
+
+void laserReceiveImageFromPDPU();
+void laserSendImageToOGS();
 
 // HYPERSPECTRAL CAMERA COMMANDS
 // IMAGE CAPTURE COMMANDS
@@ -104,6 +109,7 @@ TaskHandle_t HYPERSPECTRAL_CAMERA_TASK = NULL;
 xQueueHandle I2C_OBC    = 0;
 xQueueHandle I2C_CAMERA = 0;
 xQueueHandle I2C_PDPU   = 0;
+xQueueHandle I2C_LASER  = 0;
 
 // MAIN FUNCTION
 int main(void) {
@@ -112,11 +118,13 @@ int main(void) {
 	I2C_OBC    = xQueueCreate(5, sizeof(I2C_Payload));
 	I2C_CAMERA = xQueueCreate(5, sizeof(I2C_Payload));
 	I2C_PDPU   = xQueueCreate(5, sizeof(I2C_Payload));
+	I2C_LASER  = xQueueCreate(5, sizeof(I2C_Payload));
 
 	// TASK CREATION
 	xTaskCreate(OBC,                 "OBC",    configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY+1, NULL); //tskIDLE_PRIORITY
 	xTaskCreate(HyperSpectralCamera, "CAMERA", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY+3, NULL);
 	xTaskCreate(PDPU,                "PDPU",   configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY+2, NULL);
+	xTaskCreate(Laser,               "LASER",  configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY+3, NULL);
 
 	vTaskStartScheduler();
 
@@ -193,6 +201,10 @@ void OBC(void) {
 			printf("\n\tEnter pdpu_abort_read_out to read out the data of session 0.");
 			printf("\n\tEnter pdpu_delete_session to delete the stored data inside the camera of session 0.");
 			printf("\n");
+			printf("\nRequired commands for image transmission to OGS:");
+			printf("\n\tEnter laser_receive_image to receive the stored image from the PDPU.");
+			printf("\n\tEnter laser_send_image to transmit an image to Optical Ground Station.");
+			printf("\n");
 
 			resetTextColor();
 		}
@@ -232,8 +244,8 @@ void OBC(void) {
 			STORE_USER_DATA(2, 10, 324);
 		}
 		if (strcmp(command_name, "bug\n") == 0) {
-			setMagentaTextColor();
-			printf("MAGENTA\n");
+			setPurpleTextColor();
+			printf("PURPLE\n");
 			resetTextColor();
 		}
 		// PDPU COMMANDS
@@ -252,12 +264,19 @@ void OBC(void) {
 		if (strcmp(command_name, "pdpu_delete_session\n") == 0) {
 			pdpuDeleteSession(0);
 		}
+		// LASER COMMANDS
+		if (strcmp(command_name, "laser_receive_image\n") == 0) {
+			laserReceiveImageFromPDPU();
+		}
+		if (strcmp(command_name, "laser_send_image\n") == 0) {
+			laserSendImageToOGS();
+		}
 	}
 }
 
 /*
 * 
-* Camera Required Image Capture Commands
+* Camera Required Image Capture Commands, this are executed by the OBC
 * 
 */
 
@@ -424,7 +443,7 @@ void cameraCloseSession() {
 
 /*
 *
-* Camera Optional Image Capture Commands
+* Camera Optional Image Capture Commands, this are executed by the OBC
 *
 */
 
@@ -1221,6 +1240,22 @@ void PDPU(void) {
 					resetTextColor();
 				}
 			}
+			if (command_id == 100) {		// 0x64 SEND IMAGE TO LASER
+				tx_payload.Command_ID = 2;
+
+				tx_payload.Parameter[0] = session_id;
+
+				for (int i = 1; i < MAX_PARAMETERS; ++i)
+					tx_payload.Parameter[i] = stored_image_data[i-1];
+
+				printf("Sending stored image to laser\n");
+				printf("Session ID : %d\n", session_id);
+				printf("Stored Image Data:\n");
+				for (int i = 0; i < MAX_NUMBER_OF_LINES; ++i)
+					printf("line %d : %d\n", i + 1, stored_image_data[i]);
+
+				xQueueSend(I2C_LASER, &tx_payload, portMAX_DELAY);
+			}
 		}
 
 		resetTextColor();
@@ -1229,7 +1264,7 @@ void PDPU(void) {
 
 /*
 *
-* PAYLOAD DATA PROCESSING UNIT (PDPU) COMMAND TRANSACTIONS
+* PAYLOAD DATA PROCESSING UNIT (PDPU) COMMAND TRANSACTIONS, THIS COMMANDS ARE EXEUTED FROM THE OBC
 *
 */
 
@@ -1278,4 +1313,85 @@ void pdpuDeleteSession(int session_id) {
 	xQueueSend(I2C_PDPU, &tx_payload, portMAX_DELAY);
 }
 
+/*
+*
+* LASER TASK
+*
+*/
 
+void Laser(void) {
+
+	// STORED SESSION
+	int session_id = -1;
+
+	// COMMAND AND REQUESTS INFORMATION
+	I2C_Payload rx_payload;
+	I2C_Payload tx_payload;
+
+	// RECEIVED COMMAND FROM I2C
+	int command_id;
+	int received_command;
+
+	// REPRESENTATION OF THE STORED IMAGE DATA
+	int stored_image_data[MAX_NUMBER_OF_LINES] = { 0, 0, 0, 0, 0 };
+
+	for (;;) {
+		received_command = xQueueReceive(I2C_LASER, &rx_payload, portMAX_DELAY);
+		if (received_command) {
+			command_id = rx_payload.Command_ID;
+
+			setPurpleTextColor();
+
+			// COMMANDS
+			if (command_id == 0) {		// 0x00 SEND IMAGE TO OGS
+				printf("Laser sending stored image to Optical Ground Station...\n");
+				printf("Session ID : %d\n", session_id);
+				printf("Stored Image Data:\n");
+				for (int i = 0; i < MAX_NUMBER_OF_LINES; ++i)
+					printf("line %d : %d\n", i + 1, stored_image_data[i]);
+
+			}
+			if (command_id == 1) {		// 0x01 READ OUT IMAGE FROM PDPU
+				tx_payload.Command_ID = 100;
+
+				xQueueSend(I2C_PDPU, &tx_payload, portMAX_DELAY);
+			}
+			if (command_id == 2) {		// 0x02 RECEIVE IMAGE DATA FROM PDPU
+				session_id = rx_payload.Parameter[0];
+
+				for (int i = 0; i < MAX_NUMBER_OF_LINES; ++i)
+					stored_image_data[i] = rx_payload.Parameter[i+1];
+
+				printf("Laser received image from PDPU\n");
+				printf("Session ID : %d\n", session_id);
+				printf("Stored Image Data:\n");
+				for (int i = 0; i < MAX_NUMBER_OF_LINES; ++i)
+					printf("line %d : %d\n", i + 1, stored_image_data[i]);
+			}
+		}
+
+		resetTextColor();
+	}
+}
+
+/*
+*
+* LASER COMMAND TRANSACTIONS, THIS COMMANDS ARE EXEUTED FROM THE OBC
+*
+*/
+
+void laserSendImageToOGS() {
+	I2C_Payload payload;
+
+	payload.Command_ID = 0;
+
+	xQueueSend(I2C_LASER, &payload, portMAX_DELAY);
+}
+
+void laserReceiveImageFromPDPU() {
+	I2C_Payload payload;
+
+	payload.Command_ID = 1;
+
+	xQueueSend(I2C_LASER, &payload, portMAX_DELAY);
+}
