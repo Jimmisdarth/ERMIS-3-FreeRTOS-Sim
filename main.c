@@ -168,6 +168,7 @@ void OBC(void) {
 		printf("Type a command for OBC to execute : ");
 		fgets(command_name, sizeof(command_name), stdin);
 
+
 		if (strcmp(command_name, "EXIT\n") == 0) {
 			setBlueTextColor();
 			printf("OBC TURING OFF...\n");
@@ -175,12 +176,18 @@ void OBC(void) {
 			exit(0);
 		}
 		if (strcmp(command_name, "help\n") == 0) {
-			setBlueTextColor();
 
+			setBlueTextColor();
 			printf("\nOBC power commands:");
+
+			setRedTextColor();
 			printf("\n\tEnter EXIT to close the OBC.");
 			printf("\n");
+
+			setBlueTextColor();
 			printf("\nRequired commands for image capturing:");
+
+			setYellowTextColor();
 			printf("\n\tEnter open_session to open a camera session.");
 			printf("\n\tEnter configure to configure the currently open session of the camera.");
 			printf("\n\tEnter activate_session to activate the currently open session of the camera.");
@@ -189,19 +196,31 @@ void OBC(void) {
 			printf("\n\tEnter capture_image to start the image captuting.");
 			printf("\n\tEnter close_session to close the session of the camera.");
 			printf("\n");
+
+			setBlueTextColor();
 			printf("\nOptional commands for image capturing:");
+
+			setYellowTextColor();
 			printf("\n\tEnter set_imaging_parameter to set and confirm an imaging parameter of the camera.");
 			printf("\n\tEnter store_time_tync to store time sync.");
 			printf("\n\tEnter store_user_data to store the user data.");
 			printf("\n");
+
+			setBlueTextColor();
 			printf("\nRequired commands for image read out:");
+
+			setMagentaTextColor();
 			printf("\n\tEnter pdpu_get_session_information to get the session size and status of session 0.");
 			printf("\n\tEnter pdpu_range_set_up to set up the read out range of the next image read out.");
 			printf("\n\tEnter pdpu_read_out_session to read out the data of session 0.");
-			printf("\n\tEnter pdpu_abort_read_out to read out the data of session 0.");
+			printf("\n\tEnter pdpu_abort_read_out to abort the read out of session 0.");
 			printf("\n\tEnter pdpu_delete_session to delete the stored data inside the camera of session 0.");
 			printf("\n");
+
+			setBlueTextColor();
 			printf("\nRequired commands for image transmission to OGS:");
+
+			setPurpleTextColor();
 			printf("\n\tEnter laser_receive_image to receive the stored image from the PDPU.");
 			printf("\n\tEnter laser_send_image to transmit an image to Optical Ground Station.");
 			printf("\n");
